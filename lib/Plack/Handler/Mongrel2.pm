@@ -29,7 +29,7 @@ ZeroMQ::register_read_type( mongrel_req_to_psgi => sub {
         'psgi.version'      => [ 1, 1 ],
         'psgi.url_scheme'   => 'http', # XXX TODO
         'psgi.errors'       => *STDERR,
-        'psgi.input'        => *STDOUT,
+        'psgi.input'        => *STDOUT, # XXX TODO
         'psgi.multithread'  => 0,
         'psgi.multiprocess' => 0,
         'psgi.run_once'     => 0,
@@ -49,6 +49,16 @@ ZeroMQ::register_read_type( mongrel_req_to_psgi => sub {
     $env{QUERY_STRING}    = delete $hdrs->{QUERY};
     $env{SERVER_PROTOCOL} = delete $hdrs->{VERSION};
     ($env{SERVER_NAME}, $env{SERVER_PORT}) = split /:/, delete $hdrs->{Host}, 2;
+
+    foreach my $key (keys %$hdrs) {
+        if ($key =~ /^X-(.+)$/i) {
+            my $new_key = 'HTTP_' . uc $key;
+            $new_key =~ s/-/_/g;
+            $env{$new_key} = $hdrs->{$key};
+        } else {
+            $env{$key} = $hdrs->{$key};
+        }
+    }
 
     ($body) = _parse_netstring($rest);
 
@@ -129,7 +139,6 @@ sub reply {
         join("\r\n", map { sprintf( '%s: %s', $hdrs->[$_ * 2], $hdrs->[$_ * 2 + 1] ) } (0.. (@$hdrs/2 - 1) ) ),
         $body,
     );
-
     $self->outgoing->send( $mongrel_resp );
 }
 
