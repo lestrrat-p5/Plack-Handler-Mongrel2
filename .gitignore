@@ -1,0 +1,15 @@
+.*-*.tar.gz
+Makefile
+blib
+pm_to_blib
+*~
+*.tmp
+*.old
+*.bak
+*.rej
+*.swp
+*.swo
+MYMETA.yml
+t/mongrel.py
+t/mongrel.pyc
+t/mongrel.sqlite
