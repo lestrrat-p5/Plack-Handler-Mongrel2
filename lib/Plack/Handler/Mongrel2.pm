@@ -11,8 +11,6 @@ use Plack::Util::Accessor
 use URI::Escape ();
 
 # TODO
-#   - psgi.url_scheme
-#   - psgi.input should be a string buffer
 #   - check and fix what the correct way is to handle content-length
 #     (mongrel2 chokes on simple requests if you don't responed with
 #      content-length -- as of 8/20/2010)
