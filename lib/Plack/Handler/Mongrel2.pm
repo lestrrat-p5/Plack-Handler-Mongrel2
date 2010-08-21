@@ -19,6 +19,7 @@ use Plack::Util::Accessor
 sub _parse_netstring {
     my ($len, $rest) = split /:/, $_[0], 2;
     my $data = substr $rest, 0, $len, '';
+    $rest =~ s/^,//;
     return ($data, $rest);
 }
 
@@ -29,7 +30,7 @@ ZeroMQ::register_read_type( mongrel_req_to_psgi => sub {
         'psgi.version'      => [ 1, 1 ],
         'psgi.url_scheme'   => 'http', # XXX TODO
         'psgi.errors'       => *STDERR,
-        'psgi.input'        => *STDOUT, # XXX TODO
+        'psgi.input'        => *STDOUT,
         'psgi.multithread'  => 0,
         'psgi.multiprocess' => 0,
         'psgi.run_once'     => 0,
@@ -55,12 +56,19 @@ ZeroMQ::register_read_type( mongrel_req_to_psgi => sub {
             my $new_key = 'HTTP_' . uc $key;
             $new_key =~ s/-/_/g;
             $env{$new_key} = $hdrs->{$key};
+        } elsif ( $key =~ /^Content-(Length|Type)$/i ) {
+            my $new_key = uc $key;
+            $new_key =~ s/-/_/g;
+            $env{ $new_key } = $hdrs->{ $key };
         } else {
             $env{$key} = $hdrs->{$key};
         }
     }
 
     ($body) = _parse_netstring($rest);
+    open( my $fh, '<', \$body )
+        or die "Could not open in memory buffer: $!";
+    $env{'psgi.input'} = $fh;
 
     return \%env;
 } );
@@ -103,6 +111,9 @@ sub run {
             $self->reply( $env, [ 500, [ "Content-Type" => "text/plain" ], [ "Internal Server Error" ] ] );
         }
     }
+
+    $self->incoming->close();
+    $self->outgoing->close();
 }
 
 sub reply {
