@@ -2,10 +2,11 @@ use strict;
 use warnings;
 use Test::Requires qw(
     Data::UUID
-    Proc::Guard
+    Test::TCP
     URI::Escape
 );
 use Test::More;
+use Config;
 use Plack;
 use Plack::Handler::Mongrel2;
 use Plack::Test::Suite;
@@ -15,9 +16,9 @@ use Test::TCP qw(empty_port wait_port);
     # XXX Currently I have a problem with the test not ending.
     # need to fix it.
 
-    my $config        = gen_config();
-    my $mongrel_guard = run_mongrel2($config);
-    my $plack_guard   = run_plack($config);
+    my $config      = gen_config();
+    my $mongrel_pid = run_mongrel2($config);
+    my $plack_pid   = run_plack($config);
 
     wait_port($config->{port});
     sleep 5;
@@ -52,8 +53,26 @@ use Test::TCP qw(empty_port wait_port);
             $client->($cb);
         }
     });
-}
 
+    my ($signum, $sigkill, $sigterm, $sigint);
+    $signum = 0;
+    foreach my $sig (split(/ /, $Config{sig_name})) {
+        if ($sig eq 'KILL') {
+            $sigkill = $signum;
+        } elsif ($sig eq 'TERM') {
+            $sigterm = $signum;
+        } elsif ($sig eq 'INT') {
+            $sigint = $signum;
+        }
+        $signum++;
+    }
+
+    # I need to send a signal to both m2sh and mongrel2, so sending
+    # this signal to the process group (that's why I'm doing my own
+    # fork + exec)
+    kill $sigint * -1 => getpgrp($mongrel_pid);
+    kill $sigterm => $plack_pid;
+}
 
 done_testing();
 
@@ -82,6 +101,20 @@ sub gen_config {
     return \%config;
 }
 
+sub fork_process (@) {
+    my @cmd = @_;
+
+    my $pid = fork();
+    die "fork failed $!" unless defined $pid;
+    if ($pid == 0) { # child
+        require POSIX;
+        POSIX::setsid;
+        exec @cmd;
+        die "Could not exec '@cmd': $!";
+    }
+    return $pid;
+}
+
 
 sub run_mongrel2 {
     my $config =shift;
@@ -103,7 +136,7 @@ sub run_mongrel2 {
         exit 1;
     }
 
-    return proc_guard( "m2sh", "start", "-db", $dbfile, "-host", "localhost");
+    return fork_process "m2sh", "start", "-db", $dbfile, "-host", "localhost";
 }
 
 sub render_mongrel2_conf {
@@ -137,14 +170,15 @@ EOM
 sub run_plack {
     my $config = shift;
 
-    return proc_guard( "plackup", "-s", "Mongrel2",
+    return fork_process
+        "plackup", "-s", "Mongrel2",
         "-M", "blib",
         "--send_spec", $config->{send_spec},
         "--send_ident", $config->{send_ident},
         "--recv_spec", $config->{recv_spec},
         "--recv_ident", $config->{recv_ident},
         "-M", "Plack::Test::Suite", "-e", "Plack::Test::Suite->test_app_handler"
-    );
+    ;
 }
 
 
