@@ -117,7 +117,12 @@ sub fork_process (@) {
 
 
 sub run_mongrel2 {
-    my $config =shift;
+    my $config = shift;
+
+    my $m2sh_bin = $ENV{M2SH_BIN} || `which m2sh`;
+    chomp $m2sh_bin;
+    die "please set M2SH_BIN or place m2sh in PATH" 
+        if (! $m2sh_bin || ! -x $m2sh_bin);
 
     my $conffile = "t/mongrel2.py";
     my $dbfile = "t/mongrel2.sqlite";
@@ -126,17 +131,17 @@ sub run_mongrel2 {
     print $fh render_mongrel2_conf($config);
     close $fh;
 
-    if (system("m2sh", "init", "-db", $dbfile) != 0) {
+    if (system($m2sh_bin, "init", "-db", $dbfile) != 0) {
         fail("Could not init db");
         exit 1;
     }
 
-    if (system("m2sh", "load", "-db", $dbfile, "-config", $conffile) != 0) {
+    if (system($m2sh_bin, "load", "-db", $dbfile, "-config", $conffile) != 0) {
         fail("Could not load config");
         exit 1;
     }
 
-    return fork_process "m2sh", "start", "-db", $dbfile, "-host", "localhost";
+    return fork_process $m2sh_bin, "start", "-db", $dbfile, "-host", "localhost";
 }
 
 sub render_mongrel2_conf {
