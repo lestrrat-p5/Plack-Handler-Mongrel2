@@ -11,5 +11,6 @@ requires 'URI::Escape';
 recommends 'JSON::XS';
 
 auto_set_repository;
+author_tests 'xt';
 
 WriteAll;
