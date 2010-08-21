@@ -79,7 +79,7 @@ sub new {
     my ($class, %opts) = @_;
 
     $opts{max_workers} ||= 10;
-    $opts{max_reqs_per_child} ||= 100;
+    $opts{max_reqs_per_child} ||= 1000;
 
     bless { %opts }, $class;
 }
@@ -193,6 +193,8 @@ Plack::Handler::Mogrel2 - Plack Handler For Mongrel2
 =head1 SYNOPSIS
 
     plackup -s Mongrel2 \
+        --max_workers=10 \
+        --max_reqs_per_child=1000 \
         --send_spec=tcp://127.0.0.1:9999 \
         --send_ident=D807E984-AC0B-11DF-979C-3C4975AD5E34 \
         --recv_spec=tcp://127.0.0.1:9998 \
@@ -204,23 +206,51 @@ EXTERMELY ALPHA CODE!
 
 =head1 METHODS
 
-=head2 send_spec
+=head2 new
+
+Creates a new server. Accepts the following options:
+
+=over 4
+
+=item max_workers [default 10]
+
+Number of worker processes to spawn.
+
+=item max_reqs_per_child [default 1000]
+
+Number of requests that a child processes before exiting.
+
+=item send_spec [required]
 
 The ZeroMQ spec for mongrel2-to-handler socket. Your handler will be
 receiving requests from this socket.
 
-=head2 send_ident
+=item send_ident [required]
 
 A unique identifier for the mongrel2-to-handler socket.
 
-=head2 recv_spec
+=item recv_spec [required]
 
 The ZeroMQ spec for handler-to-mongrel2 socket. Your handler will be
 sending responses from this socket. 
 
-=head2 recv_ident
+=item recv_ident [required]
 
 A unique identifier for the handler-to-mongrel2 socket.
+
+=back
+
+=head2 run
+
+Starts the server.
+
+=head2 reply
+
+Replies back to mongrel2
+
+=head2 accept_loop
+
+Runs the process loop
 
 =head1 LICENSE
 
