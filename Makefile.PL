@@ -6,6 +6,7 @@ requires 'Plack';
 requires 'HTTP::Status';
 requires 'ZeroMQ' => '0.02';
 requires 'JSON' => '2.00';
+requires 'URI::Escape';
 
 recommends 'JSON::XS';
 

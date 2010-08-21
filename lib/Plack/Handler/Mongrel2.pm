@@ -8,6 +8,7 @@ use HTTP::Status qw(status_message);
 use Plack::Util ();
 use Plack::Util::Accessor
     qw(ctxt incoming outgoing send_spec send_ident recv_spec recv_ident);
+use URI::Escape ();
 
 # TODO
 #   - psgi.url_scheme
@@ -41,27 +42,29 @@ ZeroMQ::register_read_type( mongrel_req_to_psgi => sub {
     ($env{MONGREL2_SENDER_ID}, $env{MONGREL2_CONN_ID}, $env{PATH_INFO}, $rest) =
         split / /, $_[0], 4;
 
+    $env{PATH_INFO} = URI::Escape::uri_unescape($env{PATH_INFO});
+
     ($headers, $rest) = _parse_netstring($rest);
 
     my $hdrs = decode_json $headers;
-    $env{SCRIPT_NAME}     = delete $hdrs->{PATH};
+    $env{QUERY_STRING}    = delete $hdrs->{QUERY} || '';
     $env{REQUEST_METHOD}  = delete $hdrs->{METHOD};
     $env{REQUEST_URI}     = delete $hdrs->{URI};
-    $env{QUERY_STRING}    = delete $hdrs->{QUERY};
+    $env{SCRIPT_NAME}     = delete $hdrs->{PATH} || '';
     $env{SERVER_PROTOCOL} = delete $hdrs->{VERSION};
     ($env{SERVER_NAME}, $env{SERVER_PORT}) = split /:/, delete $hdrs->{Host}, 2;
 
     foreach my $key (keys %$hdrs) {
-        if ($key =~ /^X-(.+)$/i) {
-            my $new_key = 'HTTP_' . uc $key;
-            $new_key =~ s/-/_/g;
-            $env{$new_key} = $hdrs->{$key};
-        } elsif ( $key =~ /^Content-(Length|Type)$/i ) {
-            my $new_key = uc $key;
-            $new_key =~ s/-/_/g;
-            $env{ $new_key } = $hdrs->{ $key };
+        my $new_key = uc $key;
+        $new_key =~ s/-/_/g;
+        if ($new_key !~ /^(?:CONTENT_LENGTH|CONTENT_TYPE)$/) {
+            $new_key = "HTTP_$new_key";
+        }
+
+        if (exists $env{$new_key}) {
+            $env{$new_key} .= ", $hdrs->{$key}";
         } else {
-            $env{$key} = $hdrs->{$key};
+            $env{$new_key} = $hdrs->{$key};
         }
     }
 
@@ -135,11 +138,10 @@ sub reply {
     }
 
     if ( ! Plack::Util::status_with_no_entity_body($status) ) {
-        if (my $cl = length $body) {
-            push @$hdrs, "Content-Length", $cl;
-        }
+        push @$hdrs, "Content-Length", length $body;
     }
 
+    push @$hdrs, 'X-Plack-Test', $env->{HTTP_X_PLACK_TEST};
     my $mongrel_resp = sprintf( "%s %d:%s, %s %d %s\r\n%s\r\n\r\n%s",
         $env->{MONGREL2_SENDER_ID},
         length $env->{MONGREL2_CONN_ID},
