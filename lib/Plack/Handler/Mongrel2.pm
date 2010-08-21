@@ -5,9 +5,10 @@ our $VERSION = '0.01000';
 use ZeroMQ qw( ZMQ_UPSTREAM ZMQ_PUB ZMQ_IDENTITY );
 use JSON qw(decode_json);
 use HTTP::Status qw(status_message);
+use Parallel::Prefork;
 use Plack::Util ();
 use Plack::Util::Accessor
-    qw(ctxt incoming outgoing send_spec send_ident recv_spec recv_ident);
+    qw(send_spec send_ident recv_spec recv_ident max_workers max_reqs_per_child);
 use URI::Escape ();
 
 # TODO
@@ -77,9 +78,8 @@ ZeroMQ::register_read_type( mongrel_req_to_psgi => sub {
 sub new {
     my ($class, %opts) = @_;
 
-    $opts{ctxt} ||= ZeroMQ::Context->new();
-    $opts{incoming} ||= $opts{ctxt}->socket( ZMQ_UPSTREAM );
-    $opts{outgoing} ||= $opts{ctxt}->socket( ZMQ_PUB );
+    $opts{max_workers} ||= 10;
+    $opts{max_reqs_per_child} ||= 100;
 
     bless { %opts }, $class;
 }
@@ -93,32 +93,61 @@ sub run {
         }
     }
 
+    my $max_workers = $self->max_workers;
+    if ($max_workers > 0) {
+        my $pm = Parallel::Prefork->new({
+            max_workers => $max_workers,
+            trap_signals => {
+                TERM => 'TERM',
+                HUP  => 'TERM',
+            },
+        });
 
-    $self->incoming->connect( $self->send_spec );
-    $self->outgoing->connect( $self->recv_spec );
-    $self->outgoing->setsockopt( ZMQ_IDENTITY, $self->send_ident );
-
-    my $loop = 1;
-    local $ENV{INT} = sub {
-        $loop = 0;
-    };
-    while ( $loop ) {
-        my $env = $self->incoming->recv_as( 'mongrel_req_to_psgi' );
-        eval {
-            my $res = $app->( $env );
-            $self->reply( $env, $res );
-        };
-        if ($@) {
-            $self->reply( $env, [ 500, [ "Content-Type" => "text/plain" ], [ "Internal Server Error" ] ] );
+        while ($pm->signal_received ne 'TERM') {
+            $pm->start and next;
+            $self->accept_loop($app);
+            $pm->finish;
+        }
+        $pm->wait_all_children;
+    } else {
+        while (1) {
+            $self->accept_loop($app);
         }
     }
+}
 
-    $self->incoming->close();
-    $self->outgoing->close();
+sub accept_loop {
+    my ($self, $app) = @_;
+
+    my $ctxt     = ZeroMQ::Context->new();
+    my $incoming = $ctxt->socket( ZMQ_UPSTREAM );
+    my $outgoing = $ctxt->socket( ZMQ_PUB );
+
+    $incoming->connect( $self->send_spec );
+    $outgoing->connect( $self->recv_spec );
+    $outgoing->setsockopt( ZMQ_IDENTITY, $self->send_ident );
+
+    my $proc_req_count = 0;
+    my $max_reqs_per_child = $self->max_reqs_per_child;
+    while ( !defined $max_reqs_per_child || $proc_req_count < $max_reqs_per_child ) {
+        my $env = $incoming->recv_as( 'mongrel_req_to_psgi' );
+        eval {
+            my $res = $app->( $env );
+            $self->reply( $outgoing, $env, $res );
+        };
+        if ($@) {
+            $self->reply( $outgoing, $env, [ 500, [ "Content-Type" => "text/plain" ], [ "Internal Server Error" ] ] );
+        }
+
+        $proc_req_count++;
+    }
+
+    $incoming->close();
+    $outgoing->close();
 }
 
 sub reply {
-    my ($self, $env, $res) = @_;
+    my ($self, $outgoing, $env, $res) = @_;
 
     my ($status, $hdrs, $body) = @$res;
     if (ref $body eq 'ARRAY') {
@@ -150,7 +179,7 @@ sub reply {
         join("\r\n", map { sprintf( '%s: %s', $hdrs->[$_ * 2], $hdrs->[$_ * 2 + 1] ) } (0.. (@$hdrs/2 - 1) ) ),
         $body,
     );
-    $self->outgoing->send( $mongrel_resp );
+    $outgoing->send( $mongrel_resp );
 }
 
 1;
