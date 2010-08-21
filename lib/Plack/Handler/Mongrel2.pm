@@ -168,7 +168,6 @@ sub reply {
         push @$hdrs, "Content-Length", length $body;
     }
 
-    push @$hdrs, 'X-Plack-Test', $env->{HTTP_X_PLACK_TEST};
     my $mongrel_resp = sprintf( "%s %d:%s, %s %d %s\r\n%s\r\n\r\n%s",
         $env->{MONGREL2_SENDER_ID},
         length $env->{MONGREL2_CONN_ID},
