@@ -1,0 +1,9 @@
+Changes
+=======
+
+0.01000_01 Aug 23 2010
+    * Initial release
+    * All API and features should be considered unstable.
+    * Known issues:
+        - Mongrel2 has a fixed max content length for POST requests.
+
