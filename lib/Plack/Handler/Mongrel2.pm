@@ -10,6 +10,7 @@ use Plack::Util ();
 use Plack::Util::Accessor
     qw(send_spec send_ident recv_spec recv_ident max_workers max_reqs_per_child);
 use URI::Escape ();
+use constant DEBUG => 0;
 
 # TODO
 #   - check and fix what the correct way is to handle content-length
@@ -22,6 +23,36 @@ sub _parse_netstring {
     $rest =~ s/^,//;
     return ($data, $rest);
 }
+
+sub _parse_headers {
+    my $headers = shift;
+
+    my %hdrs;
+
+    # XXX when the client sends multiple headers of the same name, mongrel2 
+    # currently sends them like { ... "Foo": "Value1", "Foo": "Value2" ... }
+    # which is valid, but when decoded the first value gets mangled
+    $headers =~ s/{/[/;
+    $headers =~ s/}/]/;
+    $headers =~ s/":"/","/g;
+    my $hdrs_as_list = decode_json $headers;
+    while (@$hdrs_as_list) {
+        my $key = shift @$hdrs_as_list;
+        my $value = shift @$hdrs_as_list;
+
+        if (exists $hdrs{$key}) {
+            if (ref $hdrs{$key} ne 'ARRAY') {
+                $hdrs{$key} = [ $hdrs{$key}, $value ];
+            } else {
+                push @{$hdrs{$key}}, $value;
+            }
+        } else {
+            $hdrs{$key} = $value;
+        }
+    }
+    return \%hdrs;
+}
+
 
 ZeroMQ::register_read_type( mongrel_req_to_psgi => sub {
     my ($rest, $headers, $body);
@@ -45,7 +76,7 @@ ZeroMQ::register_read_type( mongrel_req_to_psgi => sub {
 
     ($headers, $rest) = _parse_netstring($rest);
 
-    my $hdrs = decode_json $headers;
+    my $hdrs = _parse_headers($headers);
     $env{QUERY_STRING}    = delete $hdrs->{QUERY} || '';
     $env{REQUEST_METHOD}  = delete $hdrs->{METHOD};
     $env{REQUEST_URI}     = delete $hdrs->{URI};
@@ -60,10 +91,16 @@ ZeroMQ::register_read_type( mongrel_req_to_psgi => sub {
             $new_key = "HTTP_$new_key";
         }
 
+        # XXX See parse_headers for why this is necessary
+        my $value = $hdrs->{$key};
+        if (ref $value eq 'ARRAY') {
+            $value = join(', ', @$value);
+        }
+
         if (exists $env{$new_key}) {
-            $env{$new_key} .= ", $hdrs->{$key}";
+            $env{$new_key} .= ", $value";
         } else {
-            $env{$new_key} = $hdrs->{$key};
+            $env{$new_key} = $value;
         }
     }
 
@@ -98,11 +135,15 @@ sub run {
         my $pm = Parallel::Prefork->new({
             max_workers => $max_workers,
             trap_signals => {
-                TERM => 'TERM',
                 HUP  => 'TERM',
             },
         });
 
+        local $SIG{INT} = sub {
+            $pm->signal_received('TERM');
+            $pm->signal_all_children('TERM');
+        };
+        local $SIG{TERM} = $SIG{INT};
         while ($pm->signal_received ne 'TERM') {
             $pm->start and next;
             $self->accept_loop($app);
@@ -129,7 +170,15 @@ sub accept_loop {
 
     my $proc_req_count = 0;
     my $max_reqs_per_child = $self->max_reqs_per_child;
-    while ( !defined $max_reqs_per_child || $proc_req_count < $max_reqs_per_child ) {
+    my $loop = 1;
+
+    local $SIG{ TERM } = sub {
+        $loop = 0;
+        $incoming->close;
+        $outgoing->close;
+        exit 0;
+    };
+    while ( $loop && (!defined $max_reqs_per_child || $proc_req_count < $max_reqs_per_child ) ) {
         my $env = $incoming->recv_as( 'mongrel_req_to_psgi' );
         eval {
             my $res = $app->( $env );
@@ -178,6 +227,10 @@ sub reply {
         join("\r\n", map { sprintf( '%s: %s', $hdrs->[$_ * 2], $hdrs->[$_ * 2 + 1] ) } (0.. (@$hdrs/2 - 1) ) ),
         $body,
     );
+
+    if (DEBUG) {
+        print STDERR "[Mongrel2.pm]: Sending $mongrel_resp\n";
+    }
     $outgoing->send( $mongrel_resp );
 }
 
