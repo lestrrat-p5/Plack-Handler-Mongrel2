@@ -36,10 +36,6 @@ use Test::TCP qw(wait_port);
                 $i++;
                 todo_skip "'$name': wait until mongrel2's max post size becomes configurable (http://mongrel2.org/tktview?name=9e180d04e9)", 4;
                 return;
-            } elsif ($name eq 'multi headers (request)') {
-                $i++;
-                todo_skip "'$name': wait until mongrel2's request format for handlers are changed (http://mongrel2.org/tktview?name=195e303fb7)", 1; 
-                return;
             }
 
             my $cb = sub {
