@@ -240,7 +240,7 @@ __END__
 
 =head1 NAME
 
-Plack::Handler::Mogrel2 - Plack Handler For Mongrel2 
+Plack::Handler::Mongrel2 - Plack Handler For Mongrel2 
 
 =head1 SYNOPSIS
 
