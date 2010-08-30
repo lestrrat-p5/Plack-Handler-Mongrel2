@@ -112,7 +112,7 @@ main = Server(
     pid_file="/t/run/mongrel2.pid",
     port=$env->{port},
     hosts = [
-        Host(name="127.0.0.1", routes={
+        Host(name="localhost", routes={
             r'/': Handler(
                 send_spec="$env->{send_spec}",
                 send_ident="$env->{send_ident}",
@@ -121,8 +121,9 @@ main = Server(
         })
     ]
 )
+settings = {"limits.content_length": 1024 * 100}
 
-commit([main])
+commit([main], settings =settings)
 EOM
 }
 
