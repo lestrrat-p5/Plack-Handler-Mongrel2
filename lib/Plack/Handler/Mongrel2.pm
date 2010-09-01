@@ -1,7 +1,7 @@
 package Plack::Handler::Mongrel2;
 use strict;
 use base qw(Plack::Handler);
-our $VERSION = '0.01000_01';
+our $VERSION = '0.01000_02';
 use ZeroMQ qw( ZMQ_UPSTREAM ZMQ_PUB ZMQ_IDENTITY );
 use JSON qw(decode_json);
 use HTTP::Status qw(status_message);

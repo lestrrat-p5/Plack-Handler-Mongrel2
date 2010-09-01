@@ -1,6 +1,16 @@
 Changes
 =======
 
+0.01000_02 Sep 01 2010
+    * Tested against mongrel2-1.0rc1 (released Sept 1)
+    * Work with new m2sh
+    * Max content length is now configurable in mongrel2, so the
+      tests were enabled back.
+    * Known issues:
+        - Somewhere along the lines in the tests I'm not being able to 
+          kill the handlers using regular measures, so I'm resorting to
+          using SIGKILL. I know it's bad manners. Patches welcome.
+
 0.01000_01 Aug 23 2010
     * Initial release
     * All API and features should be considered unstable.
