@@ -131,7 +131,7 @@ sub run {
     }
 
     my $max_workers = $self->max_workers;
-    if ($max_workers > 0) {
+    if ($max_workers > 1) {
         my $pm = Parallel::Prefork->new({
             max_workers => $max_workers,
             trap_signals => {
@@ -146,6 +146,10 @@ sub run {
         local $SIG{TERM} = $SIG{INT};
         while ($pm->signal_received ne 'TERM') {
             $pm->start and next;
+            local $SIG{TERM} = sub {
+                warn "child $$ received signal";
+                $pm->finish;
+            };
             $self->accept_loop($app);
             $pm->finish;
         }
@@ -172,12 +176,13 @@ sub accept_loop {
     my $max_reqs_per_child = $self->max_reqs_per_child;
     my $loop = 1;
 
-    local $SIG{ TERM } = sub {
+    local $SIG{ INT } = sub {
         $loop = 0;
         $incoming->close;
         $outgoing->close;
         exit 0;
     };
+    local $SIG{TERM} = $SIG{INT};
     while ( $loop && (!defined $max_reqs_per_child || $proc_req_count < $max_reqs_per_child ) ) {
         my $env = $incoming->recv_as( 'mongrel_req_to_psgi' );
         eval {
@@ -254,7 +259,7 @@ Plack::Handler::Mongrel2 - Plack Handler For Mongrel2
 
 =head1 DESCRIPTION
 
-EXTERMELY ALPHA CODE!
+EXTERMELY ALPHA CODE! Tested using morengrel2-1.0rc1.
 
 =head1 METHODS
 

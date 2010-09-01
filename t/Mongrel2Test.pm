@@ -52,6 +52,8 @@ sub gen_config() {
         send_ident    => $uuid->create_str(),
         recv_spec     => "tcp://127.0.0.1:$recv_port",
         recv_ident    => $uuid->create_str(),
+        max_workers   => $ENV{MAX_WORKERS} || 1,
+        max_reqs_per_child => $ENV{MAX_REQS_PER_CHILD} || 1,
     );
     return \%config;
 }
@@ -95,7 +97,7 @@ sub run_mongrel2($) {
         exit 1;
     }
 
-    return fork_process $m2sh_bin, "start", "-db", $dbfile, "-host", "localhost";
+    return fork_process $m2sh_bin, "start", "-db", $dbfile, "-host", "127.0.0.1";
 }
 
 sub render_mongrel2_conf($) {
@@ -108,11 +110,12 @@ main = Server(
     access_log="/t/logs/access.log",
     error_log="/t/logs/error.log",
     chroot="./",
-    default_host="localhost",
+    default_host="127.0.0.1",
+    name="test",
     pid_file="/t/run/mongrel2.pid",
     port=$env->{port},
     hosts = [
-        Host(name="localhost", routes={
+        Host(name="127.0.0.1", routes={
             r'/': Handler(
                 send_spec="$env->{send_spec}",
                 send_ident="$env->{send_ident}",
@@ -137,6 +140,8 @@ sub run_plack($) {
         "--send_ident", $config->{send_ident},
         "--recv_spec", $config->{recv_spec},
         "--recv_ident", $config->{recv_ident},
+        "--max_reqs_per_child", $config->{max_reqs_per_child},
+        "--max_workers", $config->{max_workers},
         "-M", "Plack::Test::Suite", "-e", "Plack::Test::Suite->test_app_handler"
     ;
 }

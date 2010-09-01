@@ -5,7 +5,7 @@ use Test::Requires qw(
     Test::TCP
     URI::Escape
 );
-use t::Mongrel2Test qw(gen_config run_mongrel2 run_plack SIGINT SIGTERM);
+use t::Mongrel2Test qw(gen_config run_mongrel2 run_plack SIGINT SIGTERM SIGKILL);
 use Test::More;
 use Plack;
 use Plack::Handler::Mongrel2;
@@ -53,8 +53,11 @@ use Test::TCP qw(wait_port);
     # I need to send a signal to both m2sh and mongrel2, so sending
     # this signal to the process group (that's why I'm doing my own
     # fork + exec)
+
+    # XXX I'm sorry, I'm sorry, I'm sorry. I need to look deeper into
+    # how the signal is handled within ZeroMQ
+    kill SIGKILL() => $plack_pid or die;
     kill SIGINT() * -1 => getpgrp($mongrel_pid);
-    kill SIGTERM() => $plack_pid;
 }
 
 done_testing();
