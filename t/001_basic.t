@@ -5,59 +5,70 @@ use Test::Requires qw(
     Test::TCP
     URI::Escape
 );
-use t::Mongrel2Test qw(gen_config run_mongrel2 run_plack SIGINT SIGTERM SIGKILL);
+use t::Mongrel2Test qw(
+    clean_files
+    gen_config
+    run_mongrel2
+    run_plack
+    stop_mongrel2
+    SIGINT
+    SIGTERM
+    SIGKILL
+);
 use Test::More;
 use Plack;
 use Plack::Handler::Mongrel2;
 use Plack::Test::Suite;
 use Test::TCP qw(wait_port);
 
+my $i = 0;
+foreach my $test (@Plack::Test::Suite::TEST) {
+    diag "$i. $test->[0]";
+    $i++;
+}
+
 {
     # XXX Currently I have a problem with the test not ending.
     # need to fix it.
+    clean_files();
 
     my $config      = gen_config();
     my $mongrel_pid = run_mongrel2($config);
     my $plack_pid   = run_plack($config);
 
     wait_port($config->{port});
-    sleep 5;
+    sleep 1;
 
-    my $ua = LWP::UserAgent->new;
+    $SIG{ INT } = sub {
+        kill SIGTERM() => $plack_pid;
+        kill SIGTERM() => $mongrel_pid;
+    };
+
+    my $ua = LWP::UserAgent->new(timeout => 5);
     my $i  = 0;
+    my %tests;
     Plack::Test::Suite->runtests( sub {
         my ($name, $client) = @_;
-        note $name;
-        TODO: {
-            # as of this writing (8/21) mongrel2 has a hardcoded maximum
-            # content-size set, which fails some plack tests, so we must
-            # todo_skip that test :/
-            if ($name eq 'big POST') {
-                $i++;
-                todo_skip "'$name': wait until mongrel2's max post size becomes configurable (http://mongrel2.org/tktview?name=9e180d04e9)", 4;
-                return;
+        note "TEST $i $name";
+        my $count = exists $tests{$name} ? $tests{$name} :
+            $tests{$name} ||= $i++;
+        my $cb = sub {
+            my $req = shift;
+            $req->uri->port($config->{port});
+            if ($ENV{PLACK_TEST_SCRIPT_NAME}) {
+                $req->uri->path($ENV{PLACK_TEST_SCRIPT_NAME} . $req->uri->path);
             }
 
-            my $cb = sub {
-                my $req = shift;
+            $req->header('X-Plack-Test' => $count);
+            return $ua->request($req);
+        };
 
-                $req->uri->port($config->{port});
-                $req->header('X-Plack-Test' => $i++);
-                return $ua->request($req);
-            };
-
-            $client->($cb);
-        }
+        $client->($cb);
     });
 
-    # I need to send a signal to both m2sh and mongrel2, so sending
-    # this signal to the process group (that's why I'm doing my own
-    # fork + exec)
-
-    # XXX I'm sorry, I'm sorry, I'm sorry. I need to look deeper into
-    # how the signal is handled within ZeroMQ
-    kill SIGKILL() => $plack_pid or die;
-    kill SIGINT() * -1 => getpgrp($mongrel_pid);
+    stop_mongrel2();
+    kill SIGTERM() => $plack_pid;
+    kill SIGINT()  => getpgrp($mongrel_pid);
 }
 
 done_testing();

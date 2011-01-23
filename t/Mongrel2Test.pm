@@ -5,8 +5,8 @@ use Config;
 use Test::TCP qw(empty_port);
 
 our @EXPORT_OK = qw(
-    SIGKILL SIGTERM SIGINT
-    gen_config fork_process run_mongrel2 run_plack
+    SIGKILL SIGTERM SIGINT 
+    clean_files gen_config fork_process run_mongrel2 run_plack stop_mongrel2
 );
 
 BEGIN {
@@ -31,6 +31,14 @@ BEGIN {
     }
 }
 
+sub clean_files {
+    unlink "t/mongrel2.sqlite";
+    unlink "t/run/mongrel2.pid";
+    while (<t/tmp/*>) {
+        unlink $_;
+    }
+}
+
 sub gen_config() {
     # mongrel2 is a lazy bastard, and it won't create run, log, tmp directories
     foreach my $dir qw(t/run t/log t/tmp) {
@@ -47,11 +55,14 @@ sub gen_config() {
     my $uuid = Data::UUID->new();
     my %config = (
         port          => $mong_port,
-        mongrel2_uuid => $uuid->create_str(),
+        mongrel2_uuid => 
+            $uuid->create_from_name_str( __PACKAGE__, join ".", time(), {}, rand, $$),
         send_spec     => "tcp://127.0.0.1:$send_port",
-        send_ident    => $uuid->create_str(),
+        send_ident    =>
+            $uuid->create_from_name_str( __PACKAGE__, join ".", time(), {}, rand, $$),
         recv_spec     => "tcp://127.0.0.1:$recv_port",
-        recv_ident    => $uuid->create_str(),
+        recv_ident    => 
+            $uuid->create_from_name_str( __PACKAGE__, join ".", time(), {}, rand, $$),
         max_workers   => $ENV{MAX_WORKERS} || 1,
         max_reqs_per_child => $ENV{MAX_REQS_PER_CHILD} || 1,
     );
@@ -72,6 +83,16 @@ sub fork_process (@) {
     return $pid;
 }
 
+sub stop_mongrel2() {
+    my $m2sh_bin = $ENV{M2SH_BIN} || `which m2sh`;
+    chomp $m2sh_bin;
+    die "please set M2SH_BIN or place m2sh in PATH" 
+        if (! $m2sh_bin || ! -x $m2sh_bin);
+
+    my $dbfile = "t/mongrel2.sqlite";
+    system($m2sh_bin, "stop", "-db", $dbfile, "-host", "127.0.0.1");
+}
+
 sub run_mongrel2($) {
     my $config = shift;
 
@@ -87,11 +108,6 @@ sub run_mongrel2($) {
     print $fh render_mongrel2_conf($config);
     close $fh;
 
-    if (system($m2sh_bin, "init", "-db", $dbfile) != 0) {
-        fail("Could not init db");
-        exit 1;
-    }
-
     if (system($m2sh_bin, "load", "-db", $dbfile, "-config", $conffile) != 0) {
         fail("Could not load config");
         exit 1;
@@ -103,8 +119,7 @@ sub run_mongrel2($) {
 sub render_mongrel2_conf($) {
     my $env = shift;
     return <<EOM;
-from mongrel2.config import *
-
+# generated automatically at @{[ scalar localtime ]}
 main = Server(
     uuid="$env->{mongrel2_uuid}",
     access_log="/t/logs/access.log",
@@ -116,7 +131,7 @@ main = Server(
     port=$env->{port},
     hosts = [
         Host(name="127.0.0.1", routes={
-            r'/': Handler(
+            '/': Handler(
                 send_spec="$env->{send_spec}",
                 send_ident="$env->{send_ident}",
                 recv_spec="$env->{recv_spec}",
@@ -124,9 +139,10 @@ main = Server(
         })
     ]
 )
-settings = {"limits.content_length": 1024 * 100}
-
-commit([main], settings =settings)
+settings = {
+    "upload.temp_store": "t/tmp/uploadXXXXXX"
+}
+servers = [main]
 EOM
 }
 

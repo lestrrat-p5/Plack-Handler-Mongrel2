@@ -2,15 +2,22 @@ package Plack::Handler::Mongrel2;
 use strict;
 use base qw(Plack::Handler);
 our $VERSION = '0.01000_02';
-use ZeroMQ qw( ZMQ_UPSTREAM ZMQ_PUB ZMQ_IDENTITY );
+use ZeroMQ::Raw;
+use ZeroMQ::Constants qw(
+    ZMQ_POLLIN
+    ZMQ_UPSTREAM
+    ZMQ_PULL
+    ZMQ_PUB
+    ZMQ_IDENTITY
+    ZMQ_RCVMORE
+);
 use JSON qw(decode_json);
 use HTTP::Status qw(status_message);
-use Parallel::Prefork;
 use Plack::Util ();
 use Plack::Util::Accessor
     qw(send_spec send_ident recv_spec recv_ident max_workers max_reqs_per_child);
 use URI::Escape ();
-use constant DEBUG => 0;
+use constant DEBUG => $ENV{PLACK_HANDLER_MONGREL2_DEBUG} ? 1 : 0;
 
 # TODO
 #   - check and fix what the correct way is to handle content-length
@@ -32,9 +39,14 @@ sub _parse_headers {
     # XXX when the client sends multiple headers of the same name, mongrel2 
     # currently sends them like { ... "Foo": "Value1", "Foo": "Value2" ... }
     # which is valid, but when decoded the first value gets mangled
-    $headers =~ s/{/[/;
-    $headers =~ s/}/]/;
-    $headers =~ s/":"/","/g;
+#    $headers =~ s/{/[/;
+#    $headers =~ s/}/]/;
+#    $headers =~ s/":"/","/g;
+    if (DEBUG()) {
+        print STDERR "[Mongrel2.pm] Decoding JSON '$headers'\n";
+    }
+    return decode_json $headers;
+=head1
     my $hdrs_as_list = decode_json $headers;
     while (@$hdrs_as_list) {
         my $key = shift @$hdrs_as_list;
@@ -51,11 +63,18 @@ sub _parse_headers {
         }
     }
     return \%hdrs;
+=cut
 }
 
 
-ZeroMQ::register_read_type( mongrel_req_to_psgi => sub {
+sub mongrel2_req_to_psgi {
+    my ($self, $data) = @_;
     my ($rest, $headers, $body);
+
+    if (DEBUG()) {
+        print STDERR "[Mongrel2.pm] Deparsing zmq message:\n",
+            "    data: $data\n";
+    }
 
     my %env = (
         'psgi.version'      => [ 1, 1 ],
@@ -70,19 +89,23 @@ ZeroMQ::register_read_type( mongrel_req_to_psgi => sub {
     );
 
     ($env{MONGREL2_SENDER_ID}, $env{MONGREL2_CONN_ID}, $env{PATH_INFO}, $rest) =
-        split / /, $_[0], 4;
+        split / /, $data, 4;
 
     $env{PATH_INFO} = URI::Escape::uri_unescape($env{PATH_INFO});
 
     ($headers, $rest) = _parse_netstring($rest);
 
     my $hdrs = _parse_headers($headers);
+
     $env{QUERY_STRING}    = delete $hdrs->{QUERY} || '';
     $env{REQUEST_METHOD}  = delete $hdrs->{METHOD};
     $env{REQUEST_URI}     = delete $hdrs->{URI};
     $env{SCRIPT_NAME}     = delete $hdrs->{PATH} || '';
+    if ($env{SCRIPT_NAME} eq '/') {
+        $env{SCRIPT_NAME} = '';
+    }
     $env{SERVER_PROTOCOL} = delete $hdrs->{VERSION};
-    ($env{SERVER_NAME}, $env{SERVER_PORT}) = split /:/, delete $hdrs->{Host}, 2;
+    ($env{SERVER_NAME}, $env{SERVER_PORT}) = split /:/, delete $hdrs->{host}, 2;
 
     foreach my $key (keys %$hdrs) {
         my $new_key = uc $key;
@@ -105,12 +128,26 @@ ZeroMQ::register_read_type( mongrel_req_to_psgi => sub {
     }
 
     ($body) = _parse_netstring($rest);
+
+    if ( $env{REQUEST_METHOD} eq 'JSON' ) {
+        my $json_body = decode_json $body;
+        if ($json_body->{type} eq 'disconnect') {
+            # noop 
+        } else {
+            # noop
+        }
+        if (DEBUG()) {
+            print STDERR "[Mongrel2.pm] Method is JSON, which is internal. Dropping request...\n";
+        }
+        return ();
+    }
+
     open( my $fh, '<', \$body )
         or die "Could not open in memory buffer: $!";
     $env{'psgi.input'} = $fh;
 
     return \%env;
-} );
+}
 
 sub new {
     my ($class, %opts) = @_;
@@ -132,6 +169,7 @@ sub run {
 
     my $max_workers = $self->max_workers;
     if ($max_workers > 1) {
+        require Paralell::Prefork;
         my $pm = Parallel::Prefork->new({
             max_workers => $max_workers,
             trap_signals => {
@@ -141,36 +179,68 @@ sub run {
 
         local $SIG{INT} = sub {
             $pm->signal_received('TERM');
-            $pm->signal_all_children('TERM');
+            $pm->signal_all_children('INT');
         };
         local $SIG{TERM} = $SIG{INT};
+
         while ($pm->signal_received ne 'TERM') {
             $pm->start and next;
             local $SIG{TERM} = sub {
                 warn "child $$ received signal";
                 $pm->finish;
             };
-            $self->accept_loop($app);
+            my @zmq = $self->prepare_zmq();
+            $self->accept_loop($app, @zmq);
+            $self->finalize_zmq(@zmq);
             $pm->finish;
         }
         $pm->wait_all_children;
     } else {
-        while (1) {
-            $self->accept_loop($app);
+        if (DEBUG()) {
+            print STDERR "[Mongrel2.pm] mac_workers = 1, so not loading Parallel::Prefork\n";
         }
+        my @zmq = $self->prepare_zmq();
+        while (1) {
+            $self->accept_loop($app, @zmq);
+        }
+        $self->finalize_zmq(@zmq);
     }
 }
 
+sub prepare_zmq {
+    my ($self) = @_;
+    my $ctxt     = zmq_init();
+    my $incoming = zmq_socket( $ctxt, ZMQ_UPSTREAM );
+    my $outgoing = zmq_socket( $ctxt, ZMQ_PUB );
+
+    zmq_connect( $incoming, $self->send_spec );
+    if (DEBUG()) {
+        print STDERR "[Mongrel2.pm] Connected incoming socket to ",
+            $self->send_spec, "\n";
+    }
+    zmq_connect( $outgoing, $self->recv_spec );
+    if (DEBUG()) {
+        print STDERR "[Mongrel2.pm] Connected outcoming socket to ",
+            $self->recv_spec, "\n";
+    }
+    zmq_setsockopt( $outgoing, ZMQ_IDENTITY, $self->send_spec );
+    if (DEBUG()) {
+        print STDERR "[Mongrel2.pm] outgoing socket sets identity to ",
+            $self->send_ident, "\n";
+    }
+
+    return ($ctxt, $incoming, $outgoing);
+}
+
+sub finalize_zmq {
+    my ($self, $ctxt, $incoming, $outgoing) = @_;
+    zmq_close( $incoming );
+    zmq_close( $outgoing );
+    zmq_term( $ctxt );
+}
+
 sub accept_loop {
-    my ($self, $app) = @_;
-
-    my $ctxt     = ZeroMQ::Context->new();
-    my $incoming = $ctxt->socket( ZMQ_UPSTREAM );
-    my $outgoing = $ctxt->socket( ZMQ_PUB );
-
-    $incoming->connect( $self->send_spec );
-    $outgoing->connect( $self->recv_spec );
-    $outgoing->setsockopt( ZMQ_IDENTITY, $self->send_ident );
+    my ($self, $app, $ctxt, $incoming, $outgoing) = @_;
 
     my $proc_req_count = 0;
     my $max_reqs_per_child = $self->max_reqs_per_child;
@@ -178,26 +248,37 @@ sub accept_loop {
 
     local $SIG{ INT } = sub {
         $loop = 0;
-        $incoming->close;
-        $outgoing->close;
+        zmq_close($incoming);
+        zmq_close($outgoing);
         exit 0;
     };
     local $SIG{TERM} = $SIG{INT};
     while ( $loop && (!defined $max_reqs_per_child || $proc_req_count < $max_reqs_per_child ) ) {
-        my $env = $incoming->recv_as( 'mongrel_req_to_psgi' );
-        eval {
-            my $res = $app->( $env );
-            $self->reply( $outgoing, $env, $res );
-        };
-        if ($@) {
-            $self->reply( $outgoing, $env, [ 500, [ "Content-Type" => "text/plain" ], [ "Internal Server Error" ] ] );
+        if (DEBUG()) {
+            print STDERR "[Mongrel2.pm] Waiting for next request\n";
         }
+        zmq_poll( [
+            {
+                socket => $incoming,
+                events => ZMQ_POLLIN,
+                callback => sub {
+                    while ( my $msg = zmq_recv( $incoming, ZMQ_RCVMORE ) ) {
+                        my $env = $self->mongrel2_req_to_psgi( zmq_msg_data( $msg ) );
+                        next unless $env;
 
-        $proc_req_count++;
+                        eval {
+                            my $res = $app->( $env );
+                            $self->reply( $outgoing, $env, $res );
+                        };
+                        if ($@) {
+                            $self->reply( $outgoing, $env, [ 500, [ "Content-Type" => "text/plain" ], [ "Internal Server Error" ] ] );
+                        }
+                        $proc_req_count++;
+                    }
+                }
+            }
+        ], 1000000 );
     }
-
-    $incoming->close();
-    $outgoing->close();
 }
 
 sub reply {
@@ -234,9 +315,13 @@ sub reply {
     );
 
     if (DEBUG) {
-        print STDERR "[Mongrel2.pm]: Sending $mongrel_resp\n";
+        print STDERR "[Mongrel2.pm]: Sending\n";
+        print STDERR 
+            join "\\r\\n\n", map { "    $_" } (split /\r\n/, $mongrel_resp);
+        print STDERR "\n";
     }
-    $outgoing->send( $mongrel_resp );
+
+    zmq_send( $outgoing, $mongrel_resp );
 }
 
 1;
