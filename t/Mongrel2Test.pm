@@ -140,6 +140,7 @@ main = Server(
     ]
 )
 settings = {
+    "limits.content_length": 100000,
     "upload.temp_store": "t/tmp/uploadXXXXXX"
 }
 servers = [main]
