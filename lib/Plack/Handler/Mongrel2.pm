@@ -80,7 +80,6 @@ sub mongrel2_req_to_psgi {
         'psgi.version'      => [ 1, 1 ],
         'psgi.url_scheme'   => 'http', # XXX TODO
         'psgi.errors'       => *STDERR,
-        'psgi.input'        => *STDOUT,
         'psgi.multithread'  => 0,
         'psgi.multiprocess' => 0,
         'psgi.run_once'     => 0,
@@ -142,9 +141,9 @@ sub mongrel2_req_to_psgi {
         return ();
     }
 
-    open( my $fh, '<', \$body )
-        or die "Could not open in memory buffer: $!";
-    $env{'psgi.input'} = $fh;
+    my $buf = Plack::TempBuffer->new( $env{CONTENT_LENGTH} );
+    $buf->print($body);
+    $env{'psgi.input'} = $buf->rewind;
 
     return \%env;
 }
