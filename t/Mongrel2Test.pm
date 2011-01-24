@@ -166,6 +166,16 @@ EOM
 sub run_plack($) {
     my $config = shift;
 
+    my $access_log = $config->{access_log} || do {
+        # find the top most caller
+        my $i = 1;
+        while (my @list = caller($i++)) {
+            die "call stack too deep" if $i > 100;
+        }
+        my @topmost = caller($i - 2);
+        "$topmost[1].log";
+    };
+
     return fork_process
         "plackup", "-s", "Mongrel2",
         "-M", "blib",
@@ -175,6 +185,7 @@ sub run_plack($) {
         "--recv_ident", $config->{recv_ident},
         "--max_reqs_per_child", $config->{max_reqs_per_child},
         "--max_workers", $config->{max_workers},
+        "--access-log", $access_log,
         "-M", "Plack::Test::Suite", "-e", "Plack::Test::Suite->test_app_handler"
     ;
 }
