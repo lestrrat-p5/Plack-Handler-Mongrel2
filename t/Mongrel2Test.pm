@@ -7,6 +7,7 @@ use Test::TCP qw(empty_port);
 our @EXPORT_OK = qw(
     SIGKILL SIGTERM SIGINT 
     clean_files gen_config fork_process run_mongrel2 run_plack stop_mongrel2
+    pid_for_mongrel2
 );
 
 BEGIN {
@@ -82,6 +83,21 @@ sub fork_process (@) {
     }
     return $pid;
 }
+
+sub pid_for_mongrel2() {
+    my $m2sh_bin = $ENV{M2SH_BIN} || `which m2sh`;
+    chomp $m2sh_bin;
+    die "please set M2SH_BIN or place m2sh in PATH" 
+        if (! $m2sh_bin || ! -x $m2sh_bin);
+
+    my $dbfile = "t/mongrel2.sqlite";
+    my @cmd = ($m2sh_bin, "running", "-db", $dbfile, "-host", "127.0.0.1");
+    my $output = qx/@cmd/;
+    if ( $output =~ /mongrel2 at PID (\d+) running/ ) {
+        return $1;
+    }
+}
+    
 
 sub stop_mongrel2() {
     my $m2sh_bin = $ENV{M2SH_BIN} || `which m2sh`;

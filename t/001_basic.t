@@ -11,6 +11,7 @@ use t::Mongrel2Test qw(
     run_mongrel2
     run_plack
     stop_mongrel2
+    pid_for_mongrel2
     SIGINT
     SIGTERM
     SIGKILL
@@ -33,15 +34,15 @@ foreach my $test (@Plack::Test::Suite::TEST) {
     clean_files();
 
     my $config      = gen_config();
-    my $mongrel_pid = run_mongrel2($config);
-    my $plack_pid   = run_plack($config);
+    my $m2sh_pid  = run_mongrel2($config);
+    my $plack_pid = run_plack($config);
 
     wait_port($config->{port});
     sleep 1;
 
     $SIG{ INT } = sub {
         kill SIGTERM() => $plack_pid;
-        kill SIGTERM() => $mongrel_pid;
+        kill SIGTERM() => $m2sh_pid;
     };
 
     my $ua = LWP::UserAgent->new(timeout => 5);
@@ -66,9 +67,21 @@ foreach my $test (@Plack::Test::Suite::TEST) {
         $client->($cb);
     });
 
+    note "Stopping mongrel2";
+    my $mongrel_pid = pid_for_mongrel2();
+
     stop_mongrel2();
+    note "Killing plack on $plack_pid";
     kill SIGTERM() => $plack_pid;
-    kill SIGINT()  => getpgrp($mongrel_pid);
+    kill SIGTERM() => $m2sh_pid;
+
+    if ($mongrel_pid) {
+        if (kill 0 => $mongrel_pid) {
+            diag "Sending KILL to $mongrel_pid";
+            sleep 5;
+            kill SIGKILL() => $mongrel_pid;
+        }
+    }
 }
 
 done_testing();
