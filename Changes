@@ -1,6 +1,14 @@
 Changes
 =======
 
+0.01000_03 Jan 24 2011
+    * Tested against mongrel2-1.5
+    * Adapt to mongrel2 changes
+    * use ZeroMQ 0.08 for ZeroMQ::Raw and much better behaved
+      memory management code
+    * Use Plack::TempBuffer for psgi.input
+    * Fix test numbering
+
 0.01000_02 Sep 01 2010
     * Tested against mongrel2-1.0rc1 (released Sept 1)
     * Work with new m2sh
