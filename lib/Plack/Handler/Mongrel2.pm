@@ -36,34 +36,10 @@ sub _parse_headers {
 
     my %hdrs;
 
-    # XXX when the client sends multiple headers of the same name, mongrel2 
-    # currently sends them like { ... "Foo": "Value1", "Foo": "Value2" ... }
-    # which is valid, but when decoded the first value gets mangled
-#    $headers =~ s/{/[/;
-#    $headers =~ s/}/]/;
-#    $headers =~ s/":"/","/g;
     if (DEBUG()) {
         print STDERR "[Mongrel2.pm] Decoding JSON '$headers'\n";
     }
     return decode_json $headers;
-=head1
-    my $hdrs_as_list = decode_json $headers;
-    while (@$hdrs_as_list) {
-        my $key = shift @$hdrs_as_list;
-        my $value = shift @$hdrs_as_list;
-
-        if (exists $hdrs{$key}) {
-            if (ref $hdrs{$key} ne 'ARRAY') {
-                $hdrs{$key} = [ $hdrs{$key}, $value ];
-            } else {
-                push @{$hdrs{$key}}, $value;
-            }
-        } else {
-            $hdrs{$key} = $value;
-        }
-    }
-    return \%hdrs;
-=cut
 }
 
 
@@ -343,7 +319,7 @@ Plack::Handler::Mongrel2 - Plack Handler For Mongrel2
 
 =head1 DESCRIPTION
 
-EXTERMELY ALPHA CODE! Tested using morengrel2-1.0rc1.
+EXTERMELY ALPHA CODE! Tested using morengrel2-1.5
 
 =head1 METHODS
 
@@ -392,6 +368,10 @@ Replies back to mongrel2
 =head2 accept_loop
 
 Runs the process loop
+
+=head1 TODO
+
+Make the backend switchable between blocking and non-blocking usage of zeromq
 
 =head1 LICENSE
 
