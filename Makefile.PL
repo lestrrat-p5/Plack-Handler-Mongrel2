@@ -8,7 +8,7 @@ requires 'JSON' => '2.00';
 requires 'Parallel::Prefork';
 requires 'Plack';
 requires 'URI::Escape';
-requires 'ZeroMQ' => '0.02';
+requires 'ZeroMQ' => '0.08';
 
 recommends 'JSON::XS';
 
