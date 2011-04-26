@@ -10,6 +10,7 @@ use ZeroMQ::Constants qw(
     ZMQ_PUB
     ZMQ_IDENTITY
     ZMQ_RCVMORE
+    ZMQ_LINGER
 );
 use JSON qw(decode_json);
 use HTTP::Status qw(status_message);
@@ -144,7 +145,7 @@ sub run {
 
     my $max_workers = $self->max_workers;
     if ($max_workers > 1) {
-        require Paralell::Prefork;
+        require Parallel::Prefork;
         my $pm = Parallel::Prefork->new({
             max_workers => $max_workers,
             trap_signals => {
@@ -199,6 +200,7 @@ sub prepare_zmq {
             $self->recv_spec, "\n";
     }
     zmq_setsockopt( $outgoing, ZMQ_IDENTITY, $self->send_spec );
+    zmq_setsockopt( $outgoing, ZMQ_LINGER, 1 );
     if (DEBUG()) {
         print STDERR "[Mongrel2.pm] outgoing socket sets identity to ",
             $self->send_ident, "\n";
@@ -239,6 +241,10 @@ sub accept_loop {
                 callback => sub {
                     while ( my $msg = zmq_recv( $incoming, ZMQ_RCVMORE ) ) {
                         my $env = $self->mongrel2_req_to_psgi( zmq_msg_data( $msg ) );
+                        if ( DEBUG() ) {
+                            require Data::Dumper;
+                            print STDERR Data::Dumper::Dumper($env);
+                        }
                         next unless $env;
 
                         eval {
