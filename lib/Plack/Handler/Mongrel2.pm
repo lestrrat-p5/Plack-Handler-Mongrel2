@@ -82,6 +82,7 @@ sub mongrel2_req_to_psgi {
     }
     $env{SERVER_PROTOCOL} = delete $hdrs->{VERSION};
     ($env{SERVER_NAME}, $env{SERVER_PORT}) = split /:/, delete $hdrs->{host}, 2;
+    $env{SERVER_PORT} ||= 80;
 
     foreach my $key (keys %$hdrs) {
         my $new_key = uc $key;
