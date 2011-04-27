@@ -43,6 +43,25 @@ sub _parse_headers {
     return decode_json $headers;
 }
 
+sub _parse_pattern {
+    my $pattern = shift;
+    if (DEBUG()) {
+        print STDERR "[Mongrel2.pm] Decoding PATTERN '$pattern'\n";
+    }
+    my ($name) = split /\(/, $pattern, 2;
+    $name =~ s{/+$}{};
+    $name;
+}
+
+sub _parse_path {
+    my ($path, $script_name) = @_;
+    if (DEBUG()) {
+        print STDERR "[Mongrel2.pm] Decoding PATH '$path ($script_name)'\n";
+    }
+    $path =~ s/^$script_name//;
+    URI::Escape::uri_unescape($path);
+}
+
 
 sub mongrel2_req_to_psgi {
     my ($self, $data) = @_;
@@ -64,22 +83,20 @@ sub mongrel2_req_to_psgi {
         'psgi.nonblocking'  => 0,
     );
 
-    ($env{MONGREL2_SENDER_ID}, $env{MONGREL2_CONN_ID}, $env{PATH_INFO}, $rest) =
+    ($env{MONGREL2_SENDER_ID}, $env{MONGREL2_CONN_ID}, undef, $rest) =
         split / /, $data, 4;
-
-    $env{PATH_INFO} = URI::Escape::uri_unescape($env{PATH_INFO});
 
     ($headers, $rest) = _parse_netstring($rest);
 
     my $hdrs = _parse_headers($headers);
 
+    my $script_name = _parse_pattern(delete $hdrs->{PATTERN});
+
     $env{QUERY_STRING}    = delete $hdrs->{QUERY} || '';
     $env{REQUEST_METHOD}  = delete $hdrs->{METHOD};
     $env{REQUEST_URI}     = delete $hdrs->{URI};
-    $env{SCRIPT_NAME}     = delete $hdrs->{PATH} || '';
-    if ($env{SCRIPT_NAME} eq '/') {
-        $env{SCRIPT_NAME} = '';
-    }
+    $env{SCRIPT_NAME}     = $script_name;
+    $env{PATH_INFO}       = _parse_path(delete $hdrs->{PATH}, $script_name);
     $env{SERVER_PROTOCOL} = delete $hdrs->{VERSION};
     ($env{SERVER_NAME}, $env{SERVER_PORT}) = split /:/, delete $hdrs->{host}, 2;
     $env{SERVER_PORT} ||= 80;
