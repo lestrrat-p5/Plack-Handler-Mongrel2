@@ -326,13 +326,13 @@ sub reply {
 
     my %hdr = @$hdrs;
     if ($hdr{'Content-Type'} =~ /^text.*utf-8/i) {
-	# Allow conversion to UTF-8
-	zmq_send( $outgoing, $mongrel_header . $body);
+        # Allow conversion to UTF-8
+        zmq_send( $outgoing, $mongrel_header . $body);
     }
     else {
-	# Ensure body is not converted to UTF-8
-	use bytes;
-	zmq_send( $outgoing, $mongrel_header . $body);
+        # Ensure body is not converted to UTF-8
+        use bytes;
+        zmq_send( $outgoing, $mongrel_header . $body);
     }
 
 }
