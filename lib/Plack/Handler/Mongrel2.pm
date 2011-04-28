@@ -211,7 +211,7 @@ sub prepare_zmq {
         print STDERR "[Mongrel2.pm] Connected incoming socket to ",
             $self->send_spec, "\n";
     }
-    zmq_setsockopt( $outgoing, ZMQ_IDENTITY, $self->send_ident );
+    zmq_setsockopt( $incoming, ZMQ_IDENTITY, $self->send_ident );
     if (DEBUG()) {
         print STDERR "[Mongrel2.pm] outgoing socket sets identity to ",
             $self->send_ident, "\n";
