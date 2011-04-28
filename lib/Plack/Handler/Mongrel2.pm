@@ -307,7 +307,7 @@ sub reply {
         push @$hdrs, "Content-Length", length $body;
     }
 
-    my $mongrel_resp = sprintf( "%s %d:%s, %s %d %s\r\n%s\r\n\r\n%s",
+    my $mongrel_header = sprintf( "%s %d:%s, %s %d %s\r\n%s\r\n\r\n",
         $env->{MONGREL2_SENDER_ID},
         length $env->{MONGREL2_CONN_ID},
         $env->{MONGREL2_CONN_ID},
@@ -315,17 +315,26 @@ sub reply {
         $status,
         status_message($status),
         join("\r\n", map { sprintf( '%s: %s', $hdrs->[$_ * 2], $hdrs->[$_ * 2 + 1] ) } (0.. (@$hdrs/2 - 1) ) ),
-        $body,
     );
 
     if (DEBUG) {
         print STDERR "[Mongrel2.pm]: Sending\n";
         print STDERR 
-            join "\\r\\n\n", map { "    $_" } (split /\r\n/, $mongrel_resp);
-        print STDERR "\n";
+            join "\\r\\n\n", map { "    $_" } (split /\r\n/, $mongrel_header);
+        print STDERR "$body\n";
     }
 
-    zmq_send( $outgoing, $mongrel_resp );
+    my %hdr = @$hdrs;
+    if ($hdr{'Content-Type'} =~ /^text.*utf-8/i) {
+	# Allow conversion to UTF-8
+	zmq_send( $outgoing, $mongrel_header . $body);
+    }
+    else {
+	# Ensure body is not converted to UTF-8
+	use bytes;
+	zmq_send( $outgoing, $mongrel_header . $body);
+    }
+
 }
 
 1;
