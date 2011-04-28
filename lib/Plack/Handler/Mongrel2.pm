@@ -5,7 +5,6 @@ our $VERSION = '0.01000_03';
 use ZeroMQ::Raw;
 use ZeroMQ::Constants qw(
     ZMQ_POLLIN
-    ZMQ_UPSTREAM
     ZMQ_PULL
     ZMQ_PUB
     ZMQ_IDENTITY
@@ -204,7 +203,7 @@ sub run {
 sub prepare_zmq {
     my ($self) = @_;
     my $ctxt     = zmq_init();
-    my $incoming = zmq_socket( $ctxt, ZMQ_UPSTREAM );
+    my $incoming = zmq_socket( $ctxt, ZMQ_PULL );
     my $outgoing = zmq_socket( $ctxt, ZMQ_PUB );
 
     zmq_connect( $incoming, $self->send_spec );
@@ -212,16 +211,22 @@ sub prepare_zmq {
         print STDERR "[Mongrel2.pm] Connected incoming socket to ",
             $self->send_spec, "\n";
     }
-    zmq_connect( $outgoing, $self->recv_spec );
-    if (DEBUG()) {
-        print STDERR "[Mongrel2.pm] Connected outcoming socket to ",
-            $self->recv_spec, "\n";
-    }
-    zmq_setsockopt( $outgoing, ZMQ_IDENTITY, $self->send_spec );
-    zmq_setsockopt( $outgoing, ZMQ_LINGER, 1 );
+    zmq_setsockopt( $outgoing, ZMQ_IDENTITY, $self->send_ident );
     if (DEBUG()) {
         print STDERR "[Mongrel2.pm] outgoing socket sets identity to ",
             $self->send_ident, "\n";
+    }
+
+    zmq_connect( $outgoing, $self->recv_spec );
+    if (DEBUG()) {
+        print STDERR "[Mongrel2.pm] Connected outgoing socket to ",
+            $self->recv_spec, "\n";
+    }
+    zmq_setsockopt( $outgoing, ZMQ_LINGER, 1 );
+    zmq_setsockopt( $outgoing, ZMQ_IDENTITY, $self->recv_ident );
+    if (DEBUG()) {
+        print STDERR "[Mongrel2.pm] outgoing socket sets identity to ",
+            $self->recv_ident, "\n";
     }
 
     return ($ctxt, $incoming, $outgoing);
