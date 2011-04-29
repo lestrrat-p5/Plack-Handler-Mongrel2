@@ -3,6 +3,36 @@ use strict;
 use Exporter 'import';
 use Config;
 use Test::TCP qw(empty_port);
+use Test::More;
+use Plack::Test::Suite;
+use HTTP::Request::Common qw(POST);
+
+BEGIN {
+    push @Plack::Test::Suite::TEST, [
+        'Upload big file',
+        sub {
+            my $cb = shift;
+            my $file = File::Temp->new( UNLINK => 1 );
+    
+            $file->print( "1" x 1_200_000 );
+            $file->flush;
+    
+            $cb->(
+                POST "http://127.0.0.1/",
+                    Content_Type => 'form-data',
+                    Content => [ file => "$file" ]
+            );
+            ok(1);
+        },
+        sub {
+            return [
+                200,
+                [ "Content-Type" => "text/plain" ],
+                [ "Test" ],
+            ]
+        }
+    ];
+}
 
 our @EXPORT_OK = qw(
     SIGKILL SIGTERM SIGINT 
@@ -186,7 +216,9 @@ sub run_plack($) {
         "--max_reqs_per_child", $config->{max_reqs_per_child},
         "--max_workers", $config->{max_workers},
         "--access-log", $access_log,
-        "-M", "Plack::Test::Suite", "-e", "Plack::Test::Suite->test_app_handler"
+        "-M", "Plack::Test::Suite",
+        "-M", "t::Mongrel2Test",
+        "-e", "Plack::Test::Suite->test_app_handler"
     ;
 }
 

@@ -22,18 +22,12 @@ use Plack::Handler::Mongrel2;
 use Plack::Test::Suite;
 use Test::TCP qw(wait_port);
 
-my $i = 0;
-foreach my $test (@Plack::Test::Suite::TEST) {
-    diag "$i. $test->[0]";
-    $i++;
-}
-
 {
     # XXX Currently I have a problem with the test not ending.
     # need to fix it.
     clean_files();
 
-    my $config      = gen_config();
+    my $config    = gen_config();
     my $m2sh_pid  = run_mongrel2($config);
     my $plack_pid = run_plack($config);
 
@@ -57,13 +51,12 @@ foreach my $test (@Plack::Test::Suite::TEST) {
             my $req = shift;
             $req->uri->port($config->{port});
             if ($ENV{PLACK_TEST_SCRIPT_NAME}) {
-                $req->uri->path($ENV{PLACK_TEST_SCRIPT_NAME} . $req->uri->path);
+                $req->uri->path($ENV{PLACK_TEST_SCRIPT_NAME} . $req->uri->path)
             }
 
             $req->header('X-Plack-Test' => $count);
             return $ua->request($req);
         };
-
         $client->($cb);
     });
 
