@@ -1,6 +1,13 @@
 Changes
 =======
 
+0.01000_04 Apr 29 2011
+    * Supply SERVER_PORT (hbaragar)
+    * Use newer ZeroMQ API (hbaragar)
+    * Fix SCRIPT_NAME (hbaragar)
+    * Fix some internal hoopla (hbaragar)
+    * See if we can test for big uploads, too (lestrrat)
+
 0.01000_03 Jan 24 2011
     * Tested against mongrel2-1.5
     * Adapt to mongrel2 changes
