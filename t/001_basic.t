@@ -27,52 +27,56 @@ use Test::TCP qw(wait_port);
     # need to fix it.
     clean_files();
 
-    my $config    = gen_config();
-    my $m2sh_pid  = run_mongrel2($config);
-    my $plack_pid = run_plack($config);
+    foreach my $prefix ( '', '/route_prefix' ) { 
+        local $ENV{PLACK_TEST_SCRIPT_NAME} = $prefix;
 
-    wait_port($config->{port});
-    sleep 1;
+        my $config    = gen_config();
+        my $m2sh_pid  = run_mongrel2($config);
+        my $plack_pid = run_plack($config);
 
-    $SIG{ INT } = sub {
+        wait_port($config->{port});
+        sleep 1;
+
+        local $SIG{ INT } = sub {
+            kill SIGTERM() => $plack_pid;
+            kill SIGTERM() => $m2sh_pid;
+        };
+
+        my $ua = LWP::UserAgent->new(timeout => 5);
+        my $i  = 0;
+        my %tests;
+        Plack::Test::Suite->runtests( sub {
+            my ($name, $client) = @_;
+            note "TEST $i $name";
+            my $count = exists $tests{$name} ? $tests{$name} :
+                $tests{$name} ||= $i++;
+            my $cb = sub {
+                my $req = shift;
+                $req->uri->port($config->{port});
+                if ($ENV{PLACK_TEST_SCRIPT_NAME}) {
+                    $req->uri->path($ENV{PLACK_TEST_SCRIPT_NAME} . $req->uri->path)
+                }
+
+                $req->header('X-Plack-Test' => $count);
+                return $ua->request($req);
+            };
+            $client->($cb);
+        });
+
+        note "Stopping mongrel2";
+        my $mongrel_pid = pid_for_mongrel2();
+
+        stop_mongrel2();
+        note "Killing plack on $plack_pid";
         kill SIGTERM() => $plack_pid;
         kill SIGTERM() => $m2sh_pid;
-    };
 
-    my $ua = LWP::UserAgent->new(timeout => 5);
-    my $i  = 0;
-    my %tests;
-    Plack::Test::Suite->runtests( sub {
-        my ($name, $client) = @_;
-        note "TEST $i $name";
-        my $count = exists $tests{$name} ? $tests{$name} :
-            $tests{$name} ||= $i++;
-        my $cb = sub {
-            my $req = shift;
-            $req->uri->port($config->{port});
-            if ($ENV{PLACK_TEST_SCRIPT_NAME}) {
-                $req->uri->path($ENV{PLACK_TEST_SCRIPT_NAME} . $req->uri->path)
+        if ($mongrel_pid) {
+            if (kill 0 => $mongrel_pid) {
+                diag "Sending KILL to $mongrel_pid";
+                sleep 5;
+                kill SIGKILL() => $mongrel_pid;
             }
-
-            $req->header('X-Plack-Test' => $count);
-            return $ua->request($req);
-        };
-        $client->($cb);
-    });
-
-    note "Stopping mongrel2";
-    my $mongrel_pid = pid_for_mongrel2();
-
-    stop_mongrel2();
-    note "Killing plack on $plack_pid";
-    kill SIGTERM() => $plack_pid;
-    kill SIGTERM() => $m2sh_pid;
-
-    if ($mongrel_pid) {
-        if (kill 0 => $mongrel_pid) {
-            diag "Sending KILL to $mongrel_pid";
-            sleep 5;
-            kill SIGKILL() => $mongrel_pid;
         }
     }
 }
