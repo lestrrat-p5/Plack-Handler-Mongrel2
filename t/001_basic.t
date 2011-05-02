@@ -22,8 +22,6 @@ use Plack::Handler::Mongrel2;
 use Plack::Test::Suite;
 use Test::TCP qw(wait_port);
 
-$ENV{PLACK_TEST_SCRIPT_NAME} = '/route_prefix';
-
 my $i = 0;
 foreach my $test (@Plack::Test::Suite::TEST) {
     diag "$i. $test->[0]";
@@ -58,7 +56,10 @@ foreach my $test (@Plack::Test::Suite::TEST) {
         my $cb = sub {
             my $req = shift;
             $req->uri->port($config->{port});
-            $req->uri->path(($ENV{PLACK_TEST_SCRIPT_NAME}||"") . $req->uri->path);
+            if ($ENV{PLACK_TEST_SCRIPT_NAME}) {
+                $req->uri->path($ENV{PLACK_TEST_SCRIPT_NAME} . $req->uri->path);
+            }
+
             $req->header('X-Plack-Test' => $count);
             return $ua->request($req);
         };
