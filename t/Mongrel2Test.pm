@@ -134,6 +134,7 @@ sub run_mongrel2($) {
 
 sub render_mongrel2_conf($) {
     my $env = shift;
+    my $route = $ENV{PLACK_TEST_SCRIPT_NAME} || "/";
     return <<EOM;
 # generated automatically at @{[ scalar localtime ]}
 main = Server(
@@ -147,7 +148,7 @@ main = Server(
     port=$env->{port},
     hosts = [
         Host(name="127.0.0.1", routes={
-            '/': Handler(
+            '$route': Handler(
                 send_spec="$env->{send_spec}",
                 send_ident="$env->{send_ident}",
                 recv_spec="$env->{recv_spec}",
