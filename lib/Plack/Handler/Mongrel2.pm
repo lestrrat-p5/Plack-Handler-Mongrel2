@@ -154,7 +154,7 @@ sub new {
 sub run {
     my ($self, $app) = @_;
 
-    foreach my $field qw(send_spec send_ident recv_spec recv_ident) {
+    foreach my $field (qw(send_spec send_ident recv_spec recv_ident)) {
         if (length $self->$field == 0) {
             die "Argument $field is required";
         }
