@@ -27,7 +27,7 @@ use Test::TCP qw(wait_port);
     # need to fix it.
     clean_files();
 
-    foreach my $prefix ( '', '/route_prefix' ) { 
+    foreach my $prefix ( '' ) { # , '/route_prefix/' ) { 
         local $ENV{PLACK_TEST_SCRIPT_NAME} = $prefix;
 
         my $config    = gen_config();
@@ -64,7 +64,7 @@ use Test::TCP qw(wait_port);
         });
 
         note "Stopping mongrel2";
-        my $mongrel_pid = pid_for_mongrel2();
+        my $mongrel_pid = `cat t/run/mongrel2.pid`; # pid_for_mongrel2();
 
         stop_mongrel2();
         note "Killing plack on $plack_pid";

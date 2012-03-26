@@ -2,10 +2,11 @@ package t::Mongrel2Test;
 use strict;
 use Exporter 'import';
 use Config;
-use Test::TCP qw(empty_port);
+use Test::TCP ();
 use Test::More;
 use Plack::Test::Suite;
 use HTTP::Request::Common qw(POST);
+use Data::UUID;
 
 BEGIN {
     push @Plack::Test::Suite::TEST, [
@@ -70,30 +71,61 @@ sub clean_files {
     }
 }
 
+my $uuid = Data::UUID->new();
+sub gen_uuid {
+    $uuid->create_from_name_str( __PACKAGE__, join ".", time(), {}, rand, $$, @_ );
+}
+
 sub gen_config() {
     # mongrel2 is a lazy bastard, and it won't create run, log, tmp directories
-    foreach my $dir qw(t/run t/log t/tmp) {
+    foreach my $dir (qw(t/run t/log t/tmp)){
         if (! -d $dir) {
             mkdir $dir or die "Couldn't create dir $dir: $!";
             chmod 0777, $dir;
         }
     }
 
-    my $mong_port = empty_port();
-    my $send_port = empty_port($mong_port);
-    my $recv_port = empty_port($send_port);
+    my $check     = sub {
+        my $port = shift;
+        my $remote = IO::Socket::INET->new(
+            Proto    => 'tcp',
+            PeerAddr => '127.0.0.1',
+            PeerPort => $port,
+        );
+        if ($remote) {
+            close $remote;
+            return 1;
+        } else {
+            return 0;
+        }
+    };
 
-    my $uuid = Data::UUID->new();
+    my $port = 50_000 + int(rand() * 1000);
+    my @ports;
+    while ( @ports < 3 && $port++ < 60_000 ) {
+        next if $check->($port);
+        my $sock = IO::Socket::INET->new(
+            Listen    => 5,
+            LocalAddr => '127.0.0.1',
+            LocalPort => $port,
+            Proto     => 'tcp',
+            (($^O eq 'MSWin32') ? () : (ReuseAddr => 1)),
+        );
+        push @ports, $port;
+    }
+
+    my ($mong_port, $send_port, $recv_port) = @ports;
+
     my %config = (
+        uuid          => gen_uuid(),
         port          => $mong_port,
-        mongrel2_uuid => 
-            $uuid->create_from_name_str( __PACKAGE__, join ".", time(), {}, rand, $$),
+        chroot        => "./t",
+        access_log    => "/logs/access.log",
+        error_log     => "/logs/error.log",
         send_spec     => "tcp://127.0.0.1:$send_port",
-        send_ident    =>
-            $uuid->create_from_name_str( __PACKAGE__, join ".", time(), {}, rand, $$),
+        send_ident    => gen_uuid(),
         recv_spec     => "tcp://127.0.0.1:$recv_port",
-        recv_ident    => 
-            $uuid->create_from_name_str( __PACKAGE__, join ".", time(), {}, rand, $$),
+        recv_ident    => gen_uuid(),
         max_workers   => $ENV{MAX_WORKERS} || 1,
         max_reqs_per_child => $ENV{MAX_REQS_PER_CHILD} || 1,
     );
@@ -168,10 +200,10 @@ sub render_mongrel2_conf($) {
     return <<EOM;
 # generated automatically at @{[ scalar localtime ]}
 main = Server(
-    uuid="$env->{mongrel2_uuid}",
-    access_log="/t/logs/access.log",
-    error_log="/t/logs/error.log",
-    chroot="./",
+    uuid="$env->{uuid}",
+    chroot="$env->{chroot}",
+    access_log="$env->{access_log}",
+    error_log="$env->{error_log}",
     default_host="127.0.0.1",
     name="test",
     pid_file="/t/run/mongrel2.pid",
@@ -187,6 +219,7 @@ main = Server(
     ]
 )
 settings = {
+    "control_port": "ipc://t/run/control",
     "limits.content_length": 100000,
     "upload.temp_store": "t/tmp/uploadXXXXXX"
 }
@@ -216,7 +249,7 @@ sub run_plack($) {
         "--recv_ident", $config->{recv_ident},
         "--max_reqs_per_child", $config->{max_reqs_per_child},
         "--max_workers", $config->{max_workers},
-        "--access-log", $access_log,
+#        "--access-log", $access_log,
         "-M", "Plack::Test::Suite",
         "-M", "t::Mongrel2Test",
         "-e", "Plack::Test::Suite->test_app_handler"

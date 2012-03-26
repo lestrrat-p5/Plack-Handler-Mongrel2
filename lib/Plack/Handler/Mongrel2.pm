@@ -2,8 +2,8 @@ package Plack::Handler::Mongrel2;
 use strict;
 use base qw(Plack::Handler);
 our $VERSION = '0.01000_04';
-use ZeroMQ::Raw;
-use ZeroMQ::Constants qw(
+use ZMQ::LibZMQ2;
+use ZMQ::Constants qw(
     ZMQ_POLLIN
     ZMQ_PULL
     ZMQ_PUB
@@ -190,7 +190,7 @@ sub run {
         $pm->wait_all_children;
     } else {
         if (DEBUG()) {
-            print STDERR "[Mongrel2.pm] mac_workers = 1, so not loading Parallel::Prefork\n";
+            print STDERR "[Mongrel2.pm] max_workers = 1, so not loading Parallel::Prefork\n";
         }
         my @zmq = $self->prepare_zmq();
         while (1) {
@@ -202,18 +202,28 @@ sub run {
 
 sub prepare_zmq {
     my ($self) = @_;
+
+print STDERR "IN prepare_zmq\n";
     my $ctxt     = zmq_init();
     my $incoming = zmq_socket( $ctxt, ZMQ_PULL );
     my $outgoing = zmq_socket( $ctxt, ZMQ_PUB );
 
-    zmq_connect( $incoming, $self->send_spec );
+    my $rv;
+
+    $rv = zmq_connect( $incoming, $self->send_spec );
+    if ($rv != 0) {
+        die "Failed to connect to @{[$self->send_spec]}: $!";
+    }
     if (DEBUG()) {
         print STDERR "[Mongrel2.pm] Connected incoming socket to ",
             $self->send_spec, "\n";
     }
-    zmq_setsockopt( $incoming, ZMQ_IDENTITY, $self->send_ident );
+    $rv = zmq_setsockopt( $incoming, ZMQ_IDENTITY, $self->send_ident );
+    if ($rv != 0) {
+        die "Failed to setsockopt  to @{[$self->send_ident]}: $!";
+    }
     if (DEBUG()) {
-        print STDERR "[Mongrel2.pm] outgoing socket sets identity to ",
+        print STDERR "[Mongrel2.pm] incoming socket sets identity to ",
             $self->send_ident, "\n";
     }
 
